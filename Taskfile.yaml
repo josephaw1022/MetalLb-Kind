@@ -1,0 +1,34 @@
+version: '3'
+
+tasks:
+
+  default:
+    desc: Show help
+    cmds:
+      - task --list
+
+  setup-cluster:
+    desc: Create a Kind cluster with MetalLB configuration
+    cmds:
+      - chmod +x kind-cluster-with-metallb.sh
+      - ./kind-cluster-with-metallb.sh
+    silent: false
+
+  test-loadbalancer:
+    desc: Test load balancer functionality
+    cmds:
+      - chmod +x test-loadbalancer-functionality.sh
+      - ./test-loadbalancer-functionality.sh
+    silent: false
+
+  all:
+    desc: Run both setup-cluster and test-loadbalancer tasks
+    deps:
+      - setup-cluster
+      - test-loadbalancer
+
+  clean:
+    desc: Delete the Kind cluster
+    cmds:
+      - kind delete cluster
+    silent: false
