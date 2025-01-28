@@ -2,12 +2,18 @@
 
 set -e
 
-echo "Tearing down the simpler dnsmasq and systemd-resolved setup..."
+echo "Tearing down the dnsmasq and systemd-resolved setup..."
 
 # Remove dnsmasq configuration
 if [ -f /etc/dnsmasq.conf ]; then
   echo "Removing dnsmasq configuration..."
   sudo rm -f /etc/dnsmasq.conf
+fi
+
+# Remove additional dnsmasq configurations
+if [ -d /etc/dnsmasq.d ]; then
+  echo "Removing additional dnsmasq configurations in /etc/dnsmasq.d..."
+  sudo rm -rf /etc/dnsmasq.d
 fi
 
 # Restore systemd-resolved DNSStubListener
