@@ -14,6 +14,13 @@ echo "Generating root CA certificate..."
 openssl req -x509 -new -nodes -key .ssl/root-ca-key.pem \
   -days 3650 -sha256 -out .ssl/root-ca.pem -subj "/CN=kube-ca"
 
+# Add SSL certificate to the trusted certificates directory on Fedora
+echo "Adding root CA to the trusted certificates directory..."
+sudo cp .ssl/root-ca.pem /etc/pki/ca-trust/source/anchors/
+sudo update-ca-trust extract
+echo "Root CA added to trusted certificates."
+
+
 # Create Kind network if needed
 docker network create kind || true
 
@@ -98,6 +105,19 @@ spec:
   selfSigned: {}
 EOF
 
+# Create cert-manager ClusterIssuer (CA-Based)
+echo "Creating cert-manager CA-based ClusterIssuer..."
+kubectl create secret tls -n cert-manager root-ca --cert=".ssl/root-ca.pem" --key=".ssl/root-ca-key.pem"
+kubectl apply -n cert-manager -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ca-issuer
+spec:
+  ca:
+    secretName: root-ca
+EOF
+
 # Define the custom domain
 CUSTOM_DOMAIN="local-env.test"
 GATEWAY_NAME="local-env-test-gateway"
@@ -120,6 +140,27 @@ spec:
     name: self-signed-issuer
     kind: ClusterIssuer
 EOF
+
+
+# Create a certificate for the Istio Gateway using the CA issuer
+echo "Creating certificate for the Istio Gateway..."
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${CUSTOM_DOMAIN}-cert-ca
+  namespace: istio-ingress
+spec:
+  secretName: ${CUSTOM_DOMAIN}-tls-secret-ca
+  commonName: "*.${CUSTOM_DOMAIN}"
+  dnsNames:
+    - "${CUSTOM_DOMAIN}"
+    - "*.${CUSTOM_DOMAIN}"
+  issuerRef:
+    name: ca-issuer
+    kind: ClusterIssuer
+EOF
+
 
 # Create Istio Gateway
 echo "Creating Istio Gateway..."
@@ -147,7 +188,7 @@ spec:
         - "*.${CUSTOM_DOMAIN}"
       tls:
         mode: SIMPLE
-        credentialName: ${CUSTOM_DOMAIN}-tls-secret
+        credentialName: ${CUSTOM_DOMAIN}-tls-secret-ca
 EOF
 
 echo "Setup complete. Your Kind cluster is configured with MetalLB, cert-manager (self-signed issuer), and Istio for ${CUSTOM_DOMAIN}."
