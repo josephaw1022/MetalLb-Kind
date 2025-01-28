@@ -12,27 +12,42 @@ includes:
 tasks:
   default:
     desc: Show help
+    silent: true
     cmds:
-      - task --list
+      - clear
+      - task --list-all
       - |
-        echo -e "\033[1;32m==============================\033[0m"
-        echo -e "\033[1;33mHelp Menu\033[0m"
-        echo -e "\033[1;32m==============================\033[0m"
-        echo -e "\033[1;34m- To set up dnsmasq for Fedora 41:\033[0m"
-        echo -e "  \033[1;36mtask dns:up\033[0m"
-        echo ""
-        echo -e "\033[1;34m- To set up the Kind cluster and test load balancer functionality:\033[0m"
-        echo -e "  \033[1;36mtask all\033[0m"
-        echo ""
-        echo -e "\033[1;34m- To then view the Nginx site in your browser:\033[0m"
-        echo -e "  Navigate to \033[1;36mhttp://nginx.local-env.test\033[0m"
-        echo ""
-        echo -e "\033[1;34m- To undo dnsmasq configuration for Fedora 41:\033[0m"
-        echo -e "  \033[1;36mtask dns:down\033[0m"
-        echo ""
-        echo -e "\033[1;34m- To delete the Kind cluster:\033[0m"
-        echo -e "  \033[1;36mtask clean\033[0m"
-        echo -e "\033[1;32m==============================\033[0m"
+        cat <<EOF | while IFS= read -r line; do echo -e "$line"; done
+        
+        
+        \033[1;32m==============================\033[0m
+        \033[1;33mHelp Menu\033[0m
+        \033[1;32m==============================\033[0m
+        
+        
+        \033[1;34m- To set up dnsmasq for Fedora 41:\033[0m
+          \033[1;36mtask dns:up\033[0m
+
+        \033[1;34m- To set up the Kind cluster and test load balancer functionality:\033[0m
+          \033[1;36mtask all\033[0m
+
+        \033[1;34m- To then view the Nginx site in your browser:\033[0m
+          Navigate to \033[1;36mhttp://nginx.local-env.test\033[0m
+
+        \033[1;34m- To configure your browser to trust the root certificate:\033[0m
+          \033[1;36m1.\033[0m Open a browser at \033[1;36mchrome://settings/certificates\033[0m
+          \033[1;36m2.\033[0m Click the \033[1;36mAuthorities\033[0m tab and click \033[1;36mImport\033[0m.
+          \033[1;36m3.\033[0m Select the \033[1;36mroot-ca.pem\033[0m file generated earlier.
+          \033[1;36m4.\033[0m Check \033[1;36mTrust this certificate for identifying websites\033[0m and validate.
+
+        \033[1;34m- To undo dnsmasq configuration for Fedora 41:\033[0m
+          \033[1;36mtask dns:down\033[0m
+
+        \033[1;34m- To delete the Kind cluster:\033[0m
+          \033[1;36mtask clean\033[0m
+        \033[1;32m==============================\033[0m
+        EOF
+
 
   setup-cluster:
     desc: Create a Kind cluster with MetalLB configuration
