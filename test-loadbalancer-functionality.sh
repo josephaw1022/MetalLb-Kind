@@ -2,13 +2,17 @@
 
 # Define namespace
 NAMESPACE="nginx-example"
+ISTIO_GATEWAY="local-env-test-gateway"
+DOMAIN="nginx.local-env.test"
 
-# Create namespace if it doesn't exist
+# Create namespace with Istio injection label
 if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
-    echo "Creating namespace $NAMESPACE..."
+    echo "Creating namespace $NAMESPACE with Istio injection enabled..."
     kubectl create namespace "$NAMESPACE"
+    kubectl label namespace "$NAMESPACE" istio-injection=enabled
 else
-    echo "Namespace $NAMESPACE already exists. Skipping creation."
+    echo "Namespace $NAMESPACE already exists. Ensuring Istio injection label is applied..."
+    kubectl label namespace "$NAMESPACE" istio-injection=enabled --overwrite
 fi
 
 # Define Nginx Deployment YAML
@@ -38,7 +42,7 @@ spec:
 EOF
 )
 
-# Define Nginx LoadBalancer Service YAML
+# Define Nginx ClusterIP Service YAML
 NGINX_SERVICE=$(cat <<EOF
 apiVersion: v1
 kind: Service
@@ -52,7 +56,31 @@ spec:
   - protocol: TCP
     port: 80
     targetPort: 80
-  type: LoadBalancer
+  type: ClusterIP
+EOF
+)
+
+# Define VirtualService YAML
+NGINX_VIRTUAL_SERVICE=$(cat <<EOF
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: nginx-virtualservice
+  namespace: $NAMESPACE
+spec:
+  hosts:
+  - nginx.local-env.test
+  gateways:
+  - istio-ingress/$ISTIO_GATEWAY
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: nginx-service.$NAMESPACE.svc.cluster.local
+        port:
+          number: 80
 EOF
 )
 
@@ -66,10 +94,18 @@ fi
 
 # Apply Nginx Service
 if ! kubectl get svc nginx-service -n "$NAMESPACE" &>/dev/null; then
-    echo "Creating Nginx LoadBalancer service in namespace $NAMESPACE..."
+    echo "Creating Nginx ClusterIP service in namespace $NAMESPACE..."
     echo "$NGINX_SERVICE" | kubectl apply -f -
 else
-    echo "Nginx LoadBalancer service already exists in namespace $NAMESPACE. Skipping creation."
+    echo "Nginx service already exists in namespace $NAMESPACE. Skipping creation."
+fi
+
+# Apply VirtualService
+if ! kubectl get virtualservice nginx-virtualservice -n "$NAMESPACE" &>/dev/null; then
+    echo "Creating Nginx VirtualService in namespace $NAMESPACE..."
+    echo "$NGINX_VIRTUAL_SERVICE" | kubectl apply -f -
+else
+    echo "Nginx VirtualService already exists in namespace $NAMESPACE. Skipping creation."
 fi
 
 # Wait for Nginx pods to be ready
@@ -77,10 +113,4 @@ echo "Waiting for Nginx pods to be ready..."
 kubectl wait --for=condition=ready pod -l app=nginx --timeout=60s -n "$NAMESPACE"
 kubectl get pods -l app=nginx -n "$NAMESPACE"
 
-# Get Nginx LoadBalancer service details
-NGINX_LB_IP=$(kubectl get svc nginx-service -n "$NAMESPACE" -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
-if [ -n "$NGINX_LB_IP" ]; then
-    echo "Nginx LoadBalancer is available at: http://$NGINX_LB_IP"
-else
-    echo "Nginx LoadBalancer IP is not available yet. Service might still be initializing."
-fi
+echo "Setup complete. You can now access Nginx at: http://$DOMAIN"

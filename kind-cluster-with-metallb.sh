@@ -1,55 +1,68 @@
 #!/bin/bash
 
+set -e
+
+# Create a folder to store certificate files
+mkdir -p .ssl
+
+# Generate an RSA key
+echo "Generating RSA key for root CA..."
+openssl genrsa -out .ssl/root-ca-key.pem 2048
+
+# Generate a root certificate
+echo "Generating root CA certificate..."
+openssl req -x509 -new -nodes -key .ssl/root-ca-key.pem \
+  -days 3650 -sha256 -out .ssl/root-ca.pem -subj "/CN=kube-ca"
+
 # Create Kind network if needed
 docker network create kind || true
 
-# Delete Kind cluster
+# Delete Kind cluster if it exists
 kind delete cluster || true
 
 # Wait for the cluster to clean up
 sleep 2
 
-# Create Kind cluster
-# Uncomment the line below if you want to create the cluster
+# Create Kind cluster with three worker nodes
+echo "Creating Kind cluster with three worker nodes..."
 kind create cluster --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
 - role: worker
+- role: worker
+- role: worker
 EOF
 
-
-# Calculate MetalLB IP range
-echo "Using Docker..."
-KIND_NET_CIDR=$(docker network inspect kind -f '{{(index .IPAM.Config 0).Subnet}}')
-KIND_NET_BASE=$(echo "${KIND_NET_CIDR}" | awk -F'.' '{print $1"."$2"."$3}')
-METALLB_IP_START="${KIND_NET_BASE}.200" # Starting IP
-METALLB_IP_END="${KIND_NET_BASE}.254"   # Ending IP
-
-echo "kind cidr: ${KIND_NET_CIDR}"
-echo "kind network base: ${KIND_NET_BASE}"
-echo "MetalLB IP range: ${METALLB_IP_START}-${METALLB_IP_END}"
-
-# Calculate MetalLB IP range
-METALLB_IP_RANGE="${METALLB_IP_START}-${METALLB_IP_END}"
-
-# Echo the MetalLB IP range
-echo "MetalLB IP range: ${METALLB_IP_RANGE}"
-
-# Add Helm repository for MetalLB
+# Setup Helm Repos and Install Helm Charts
+helm repo add istio https://istio-release.storage.googleapis.com/charts
+helm repo add jetstack https://charts.jetstack.io --force-update
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add metallb https://metallb.github.io/metallb
-
-# Update Helm repositories
 helm repo update
 
-# Install MetalLB using Helm
-helm install metallb metallb/metallb \
-  --namespace metallb-system --create-namespace
+# Install MetalLB
+helm upgrade --wait --install metallb metallb/metallb --namespace metallb-system --create-namespace
 
+# Install Prometheus Stack
+helm upgrade --wait --install kube-prometheus-stack prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace
+
+# Install cert-manager
+helm upgrade --install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --version v1.16.2 --set crds.enabled=true
+
+# Wait for MetalLB to stabilize
+echo "Waiting for MetalLB to stabilize..."
 sleep 80
 
+# Calculate MetalLB IP range
+KIND_NET_CIDR=$(docker network inspect kind -f '{{(index .IPAM.Config 0).Subnet}}')
+KIND_NET_BASE=$(echo "${KIND_NET_CIDR}" | awk -F'.' '{print $1"."$2"."$3}')
+METALLB_IP_START="${KIND_NET_BASE}.200"
+METALLB_IP_END="${KIND_NET_BASE}.254"
+METALLB_IP_RANGE="${METALLB_IP_START}-${METALLB_IP_END}"
 
+# Apply MetalLB configuration
 kubectl apply -f - <<EOF
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -67,3 +80,74 @@ metadata:
   name: default
 EOF
 
+sleep 10
+
+# Install Istio
+helm upgrade --install istio-base istio/base -n istio-system --create-namespace --wait
+helm upgrade --install istiod istio/istiod -n istio-system --wait
+helm upgrade --install istio-ingress istio/gateway -n istio-ingress --create-namespace
+
+# Create cert-manager ClusterIssuer (Self-Signed)
+echo "Creating cert-manager self-signed ClusterIssuer..."
+kubectl apply -n cert-manager -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: self-signed-issuer
+spec:
+  selfSigned: {}
+EOF
+
+# Define the custom domain
+CUSTOM_DOMAIN="local-env.test"
+GATEWAY_NAME="local-env-test-gateway"
+
+# Create a certificate for the Istio Gateway
+echo "Creating certificate for the Istio Gateway..."
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${CUSTOM_DOMAIN}-cert
+  namespace: istio-ingress
+spec:
+  secretName: ${CUSTOM_DOMAIN}-tls-secret
+  commonName: "*.${CUSTOM_DOMAIN}"
+  dnsNames:
+    - "${CUSTOM_DOMAIN}"
+    - "*.${CUSTOM_DOMAIN}"
+  issuerRef:
+    name: self-signed-issuer
+    kind: ClusterIssuer
+EOF
+
+# Create Istio Gateway
+echo "Creating Istio Gateway..."
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: ${GATEWAY_NAME}
+  namespace: istio-ingress
+spec:
+  selector:
+    istio: ingress
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*.${CUSTOM_DOMAIN}"
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - "*.${CUSTOM_DOMAIN}"
+      tls:
+        mode: SIMPLE
+        credentialName: ${CUSTOM_DOMAIN}-tls-secret
+EOF
+
+echo "Setup complete. Your Kind cluster is configured with MetalLB, cert-manager (self-signed issuer), and Istio for ${CUSTOM_DOMAIN}."
