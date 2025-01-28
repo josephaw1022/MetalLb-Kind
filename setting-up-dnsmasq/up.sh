@@ -13,8 +13,16 @@ echo "Configuring dnsmasq..."
 sudo tee /etc/dnsmasq.conf > /dev/null <<EOF
 bind-interfaces
 listen-address=127.0.0.1
+
+# Prevent dnsmasq from reading /etc/resolv.conf
+no-resolv
+
+# Upstream DNS servers
 server=8.8.8.8
 server=8.8.4.4
+
+# Directory for additional configurations
+conf-dir=/etc/dnsmasq.d
 EOF
 
 # Disable systemd-resolved DNSStubListener
