@@ -23,9 +23,9 @@ tasks:
 
   all:
     desc: Run both setup-cluster and test-loadbalancer tasks
-    deps:
-      - setup-cluster
-      - test-loadbalancer
+    cmds:
+      - task: setup-cluster
+      - task: test-loadbalancer
 
   clean:
     desc: Delete the Kind cluster
