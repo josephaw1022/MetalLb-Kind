@@ -2,17 +2,31 @@
 
 set -e
 
-# Create a folder to store certificate files
-mkdir -p .ssl
 
-# Generate an RSA key
-echo "Generating RSA key for root CA..."
-openssl genrsa -out .ssl/root-ca-key.pem 2048
+# Create a folder to store certificate files if it doesn't exist
+if [ ! -d .ssl ]; then
+  echo "Creating folder to store certificate files..."
+  mkdir -p .ssl
+else
+  echo "Certificate folder already exists. Skipping creation."
+fi
 
-# Generate a root certificate
-echo "Generating root CA certificate..."
-openssl req -x509 -new -nodes -key .ssl/root-ca-key.pem \
-  -days 3650 -sha256 -out .ssl/root-ca.pem -subj "/CN=kube-ca"
+# Generate an RSA key if it doesn't exist
+if [ ! -f .ssl/root-ca-key.pem ]; then
+  echo "Generating RSA key for root CA..."
+  openssl genrsa -out .ssl/root-ca-key.pem 2048
+else
+  echo "RSA key for root CA already exists. Skipping generation."
+fi
+
+# Generate a root certificate if it doesn't exist
+if [ ! -f .ssl/root-ca.pem ]; then
+  echo "Generating root CA certificate..."
+  openssl req -x509 -new -nodes -key .ssl/root-ca-key.pem \
+    -days 3650 -sha256 -out .ssl/root-ca.pem -subj "/CN=kube-ca"
+else
+  echo "Root CA certificate already exists. Skipping generation."
+fi
 
 # Add SSL certificate to the trusted certificates directory on Fedora
 echo "Adding root CA to the trusted certificates directory..."
@@ -56,10 +70,11 @@ helm upgrade --wait --install metallb metallb/metallb --namespace metallb-system
 helm upgrade --wait --install kube-prometheus-stack prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace
 
 # Install cert-manager
-helm upgrade --install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --version v1.16.2 --set crds.enabled=true
+helm upgrade --wait --install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --version v1.16.2 --set crds.enabled=true
 
 # Wait for MetalLB to stabilize
 echo "Waiting for MetalLB to stabilize..."
+
 sleep 80
 
 # Calculate MetalLB IP range
@@ -180,6 +195,8 @@ spec:
         protocol: HTTP
       hosts:
         - "*.${CUSTOM_DOMAIN}"
+      tls:
+        httpsRedirect: true
     - port:
         number: 443
         name: https
