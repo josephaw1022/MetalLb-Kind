@@ -1,0 +1,20 @@
+version: '3'
+
+tasks:
+
+  default:
+    desc: "Run up"
+    cmds:
+      - task --list-all
+
+  up:
+    desc: "Set up dnsmasq for fedora 41"
+    cmds:
+      - "chmod +x up.sh"
+      - "./up.sh"
+
+  down:
+    desc: "Tear down dnsmasq for fedora 41"
+    cmds:
+      - "chmod +x down.sh"
+      - "./down.sh"
