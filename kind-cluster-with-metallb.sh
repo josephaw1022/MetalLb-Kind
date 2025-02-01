@@ -208,4 +208,16 @@ spec:
         credentialName: ${CUSTOM_DOMAIN}-tls-secret-ca
 EOF
 
-echo "Setup complete. Your Kind cluster is configured with MetalLB, cert-manager (self-signed issuer), and Istio for ${CUSTOM_DOMAIN}."
+
+# retrieve local load balancer IP address
+LB_IP=$(kubectl get svc -n istio-ingress istio-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+# Create or override the dnsmasq configuration file for the custom domain
+DNSMASQ_CONFIG_FILE="/etc/dnsmasq.d/${CUSTOM_DOMAIN}.conf"
+
+echo "Configuring dnsmasq for ${CUSTOM_DOMAIN}..."
+echo "address=/${CUSTOM_DOMAIN}/${LB_IP}" | sudo tee "${DNSMASQ_CONFIG_FILE}" > /dev/null
+
+# Restart dnsmasq to apply changes
+echo "Restarting dnsmasq..."
+sudo systemctl restart dnsmasq
